@@ -34,3 +34,6 @@ Makefile
 # OS
 .DS_Store
 Thumbs.db
+
+# Ignore all files in the .claude/skills directory except for the ones that are explicitly added to the repository
+!.claude/skills/*
