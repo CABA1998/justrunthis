@@ -213,6 +213,12 @@ justrunthis/
 
 ---
 
+## Contributing
+
+Pull requests are welcome. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the branch strategy and step-by-step workflow.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
