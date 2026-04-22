@@ -9,12 +9,5 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-add_executable(justrunthis WIN32
-    src/main.cpp
-    src/MainWindow.cpp
-    src/MainWindow.h
-    src/CppRunner.cpp
-    src/CppRunner.h
-)
-
-target_link_libraries(justrunthis PRIVATE Qt6::Widgets)
+add_subdirectory(src)
+add_subdirectory(app)
