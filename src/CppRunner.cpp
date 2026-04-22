@@ -8,11 +8,12 @@
 
 CppRunner::CppRunner(QObject *parent) : QObject(parent) {}
 
-void CppRunner::run(const QString &sourceFile, const QString &stdinData) {
+void CppRunner::run(const QString &sourceFile, const QString &stdinData, bool interactive) {
     if (isRunning()) return;
 
     m_sourceFile = sourceFile;
     m_stdinData = stdinData;
+    m_interactive = interactive;
     m_timedOut = false;
 
     QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
@@ -36,15 +37,15 @@ void CppRunner::startCompile() {
     m_compiler = new QProcess(this);
 
     connect(m_compiler, &QProcess::readyReadStandardError, this, [this]() {
-        emit outputReceived(QString::fromLocal8Bit(m_compiler->readAllStandardError()));
+        emit stderrReceived(QString::fromLocal8Bit(m_compiler->readAllStandardError()));
     });
     connect(m_compiler, &QProcess::readyReadStandardOutput, this, [this]() {
-        emit outputReceived(QString::fromLocal8Bit(m_compiler->readAllStandardOutput()));
+        emit stdoutReceived(QString::fromLocal8Bit(m_compiler->readAllStandardOutput()));
     });
     connect(m_compiler, &QProcess::errorOccurred, this,
             [this](QProcess::ProcessError err) {
                 if (err != QProcess::FailedToStart) return;
-                emit outputReceived(
+                emit stderrReceived(
                     "ERROR: Failed to start g++. Is MinGW in your PATH?\n"
                     "Typical path: C:\\Qt\\Tools\\mingw1310_64\\bin\n");
                 emit statusChanged("g++ not found");
@@ -79,21 +80,25 @@ void CppRunner::startRun() {
     m_timer.restart();
 
     m_runner = new QProcess(this);
-    m_runner->setProcessChannelMode(QProcess::MergedChannels);
 
     connect(m_runner, &QProcess::readyReadStandardOutput, this, [this]() {
-        emit outputReceived(QString::fromLocal8Bit(m_runner->readAllStandardOutput()));
+        emit stdoutReceived(QString::fromLocal8Bit(m_runner->readAllStandardOutput()));
+    });
+    connect(m_runner, &QProcess::readyReadStandardError, this, [this]() {
+        emit stderrReceived(QString::fromLocal8Bit(m_runner->readAllStandardError()));
     });
     connect(m_runner, &QProcess::started, this, [this]() {
         if (!m_stdinData.isEmpty()) {
             m_runner->write(m_stdinData.toUtf8());
         }
-        m_runner->closeWriteChannel();
+        if (!m_interactive) {
+            m_runner->closeWriteChannel();
+        }
     });
     connect(m_runner, &QProcess::errorOccurred, this,
             [this](QProcess::ProcessError err) {
                 if (err != QProcess::FailedToStart) return;
-                emit outputReceived("ERROR: Failed to start compiled binary.\n");
+                emit stderrReceived("ERROR: Failed to start compiled binary.\n");
                 emit statusChanged("Failed to start");
                 emit finished(true, -1, m_timer.elapsed());
                 cleanup();
@@ -124,15 +129,32 @@ void CppRunner::startRun() {
 
     m_runner->start(m_binaryPath);
 
-    m_timeoutTimer = new QTimer(this);
-    m_timeoutTimer->setSingleShot(true);
-    connect(m_timeoutTimer, &QTimer::timeout, this, [this]() {
-        if (m_runner && m_runner->state() != QProcess::NotRunning) {
-            m_timedOut = true;
-            m_runner->kill();
-        }
-    });
-    m_timeoutTimer->start(kTimeoutMs);
+    if (!m_interactive) {
+        m_timeoutTimer = new QTimer(this);
+        m_timeoutTimer->setSingleShot(true);
+        connect(m_timeoutTimer, &QTimer::timeout, this, [this]() {
+            if (m_runner && m_runner->state() != QProcess::NotRunning) {
+                m_timedOut = true;
+                m_runner->kill();
+            }
+        });
+        m_timeoutTimer->start(kTimeoutMs);
+    }
+}
+
+void CppRunner::sendLine(const QString &line) {
+    if (!m_runner || m_runner->state() != QProcess::Running) return;
+    QByteArray data = line.toUtf8();
+    if (!data.endsWith('\n')) data.append('\n');
+    m_runner->write(data);
+}
+
+void CppRunner::stop() {
+    if (m_runner && m_runner->state() != QProcess::NotRunning) {
+        m_runner->kill();
+    } else if (m_compiler && m_compiler->state() != QProcess::NotRunning) {
+        m_compiler->kill();
+    }
 }
 
 void CppRunner::cleanup() {
